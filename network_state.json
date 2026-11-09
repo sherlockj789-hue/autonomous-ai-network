@@ -1,9 +1,9 @@
 {
-    "generation": 3,
+    "generation": 4,
     "industries": [
         "Finance",
         "Retail",
         "Healthcare"
     ],
-    "best_score": 77.09
+    "best_score": 79.36
 }
