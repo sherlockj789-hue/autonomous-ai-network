@@ -1,9 +1,12 @@
 name: Perpetual Autonomous AI Network
 
 on:
+  push:
+    branches:
+      - main
   schedule:
-    - cron: '0 */2 * * *' # Automatically wakes up the network every 2 hours
-  workflow_dispatch: # Lets you trigger it manually anytime
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
 
 jobs:
   run-agents:
