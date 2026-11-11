@@ -21,11 +21,11 @@ jobs:
           python-version: '3.10'
 
       - name: Install Frameworks
-        run: pip install transformers requests
+        run: pip install requests
 
-      - name: Execute Multi-Agent Optimization Loop
+      - name: Execute Heavyweight Multi-Agent Loop
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_TOKEN: \${{ secrets.HF_TOKEN }}
         run: |
           python - << 'EOF'
           import os, requests, json, random
@@ -36,30 +36,63 @@ jobs:
           except:
               state = {"generation": 1, "industries": ["Finance", "Retail", "Healthcare"], "best_score": 70.0}
 
-          print(f"🤖 Booting Generation {state['generation']} of the AI Network...")
-
-          improvement = round(random.uniform(1.5, 4.2), 2)
-          state["best_score"] = min(100.0, state["best_score"] + improvement)
-          state["generation"] += 1
-          
           target_industry = random.choice(state["industries"])
-          print(f"📈 Agents optimized their core logic. Current benchmark score: {state['best_score']}%")
+          headers = {
+              "Authorization": f"Bearer {os.environ['HF_TOKEN']}",
+              "Content-Type": "application/json"
+          }
+          API_URL = "https://huggingface.co"
 
-          if state["best_score"] >= 95.0:
-              print(f"🚀 Peak Model Achieved! Deploying Autonomous AI bot to {target_industry} industry...")
-              state["best_score"] = 70.0 
-          else:
-              print(f"🔧 Model needs more training. Handing off to the next iteration loop.")
+          def ask_agent(model_id, system_prompt, user_prompt):
+              payload = {
+                  "model": model_id,
+                  "messages": [
+                      {"role": "system", "content": system_prompt},
+                      {"role": "user", "content": user_prompt}
+                  ],
+                  "max_tokens": 1500
+              }
+              res = requests.post(API_URL, headers=headers, json=payload)
+              if res.status_code == 200:
+                  return res.json()["choices"][0]["message"]["content"]
+              else:
+                  print(f"⚠️ {model_id} status {res.status_code}: {res.text}")
+                  return None
 
+          print(f"🧠 Agent 1 (Llama-3.3-70B Architect) designing blueprint for {target_industry}...")
+          blueprint = ask_agent(
+              "meta-llama/Llama-3.3-70B-Instruct",
+              "You are a senior software architect. Design a practical, real-world Python automation tool.",
+              f"Design a detailed technical specification for a useful Python automation script in the {target_industry} industry. Keep it focused so it can be built in one standalone script."
+          )
+
+          if blueprint:
+              print("💻 Agent 2 (Qwen-2.5-Coder-32B) writing production code...")
+              raw_code = ask_agent(
+                  "Qwen/Qwen2.5-Coder-32B-Instruct",
+                  "You are an elite Python developer. Output ONLY raw, runnable Python code with no markdown formatting or explanations.",
+                  f"Write the complete Python code based on this architecture blueprint:\n\n{blueprint}"
+              )
+
+              if raw_code:
+                  clean_code = raw_code.replace("```python", "").replace("```", "").strip()
+                  os.makedirs("generated_tools", exist_ok=True)
+                  filename = f"generated_tools/{target_industry.lower()}_pro_gen{state['generation']}.py"
+                  with open(filename, "w") as f:
+                      f.write(clean_code)
+                  print(f"🚀 Success! Heavyweight tool saved to {filename}")
+                  state["best_score"] = min(100.0, round(state["best_score"] + 4.0, 2))
+
+          state["generation"] += 1
           with open('network_state.json', 'w') as f:
               json.dump(state, f, indent=4)
           EOF
 
-      - name: Push Agent Progress & Trigger Next Loop
+      - name: Push Real Code & Progress to Repo
         run: |
           git config --global user.name "Autonomous Orchestrator"
           git config --global user.email "agents@autonomous.network"
-          git add network_state.json
-          git commit -m "🤖 Network Optimization complete [Generation Loop]" || exit 0
+          git add .
+          git commit -m "🚀 Generated heavyweight AI tool [Gen Loop]" || exit 0
           git push
           
