@@ -5,8 +5,12 @@ on:
     branches:
       - main
   schedule:
-    - cron: '0 */2 * * *'
+    - cron: '0 */6 * * *'
   workflow_dispatch:
+
+permissions:
+  contents: write
+  models: read
 
 jobs:
   run-agents:
@@ -18,81 +22,149 @@ jobs:
       - name: Boot Cloud Python Environment
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
       - name: Install Frameworks
         run: pip install requests
 
-      - name: Execute Heavyweight Multi-Agent Loop
+      - name: Run Autonomous Full-Stack Squad
         env:
-          HF_TOKEN: \${{ secrets.HF_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python - << 'EOF'
-          import os, requests, json, random
+          import os, requests, json, random, re, sys, py_compile
 
-          try:
-              with open('network_state.json', 'r') as f:
-                  state = json.load(f)
-          except:
-              state = {"generation": 1, "industries": ["Finance", "Retail", "Healthcare"], "best_score": 70.0}
-
-          target_industry = random.choice(state["industries"])
-          headers = {
-              "Authorization": f"Bearer {os.environ['HF_TOKEN']}",
+          API_URL = "https://github.ai"
+          HEADERS = {
+              "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
               "Content-Type": "application/json"
           }
-          API_URL = "https://huggingface.co"
 
-          def ask_agent(model_id, system_prompt, user_prompt):
-              payload = {
-                  "model": model_id,
-                  "messages": [
-                      {"role": "system", "content": system_prompt},
-                      {"role": "user", "content": user_prompt}
-                  ],
-                  "max_tokens": 1500
-              }
-              res = requests.post(API_URL, headers=headers, json=payload)
-              if res.status_code == 200:
-                  return res.json()["choices"][0]["message"]["content"]
-              else:
-                  print(f"⚠️ {model_id} status {res.status_code}: {res.text}")
-                  return None
+          def call_agent(system_prompt, user_prompt, max_tokens=3000):
+              for model_id in ["openai/gpt-4.1", "openai/gpt-4o"]:
+                  payload = {
+                      "model": model_id,
+                      "messages": [
+                          {"role": "system", "content": system_prompt},
+                          {"role": "user", "content": user_prompt}
+                      ],
+                      "max_tokens": max_tokens,
+                      "temperature": 0.4
+                  }
+                  res = requests.post(API_URL, headers=HEADERS, json=payload, timeout=90)
+                  if res.status_code == 200:
+                      data = res.json()
+                      choices = data.get("choices", [])
+                      if choices:
+                          content = choices.pop(0)["message"]["content"]
+                          print(f"✅ {model_id} responded.")
+                          return re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+                  print(f"⚠️ Model {model_id} status {res.status_code}: {res.text}")
+              sys.exit(1)
 
-          print(f"🧠 Agent 1 (Llama-3.3-70B Architect) designing blueprint for {target_industry}...")
-          blueprint = ask_agent(
-              "meta-llama/Llama-3.3-70B-Instruct",
-              "You are a senior software architect. Design a practical, real-world Python automation tool.",
-              f"Design a detailed technical specification for a useful Python automation script in the {target_industry} industry. Keep it focused so it can be built in one standalone script."
+          try:
+              with open("network_state.json", "r") as f:
+                  state = json.load(f)
+          except Exception:
+              state = {"generation": 1, "industries": ["AI SaaS", "FinTech", "HealthTech", "DevTools"], "apps_built": []}
+
+          try:
+              with open("agent_brain.json", "r") as f:
+                  brain = json.load(f)
+          except Exception:
+              brain = {"evolution_level": 1, "architect_directive": "Build full-stack FastAPI + SQLite web apps with dynamic JS frontends."}
+
+          industry = random.choice(state["industries"])
+          gen = state["generation"]
+          print(f"🌐 Generation {gen} | Building Full-Stack App for {industry}...")
+
+          new_rule = call_agent(
+              "You are a Meta-AI Architect. Output one concise sentence improving full-stack engineering.",
+              f"Level {brain['evolution_level']}. Give one rule for building a trending {industry} full-stack app.",
+              max_tokens=150
+          )
+          brain["architect_directive"] = new_rule
+          brain["evolution_level"] += 1
+
+          build_prompt = f"""
+          Creator: @sherlockj789-hue
+          Industry: {industry}
+          Directive: {brain['architect_directive']}
+
+          Build a complete FULL-STACK web application (FastAPI + SQLite backend + interactive Tailwind/JS frontend).
+          Return ONLY raw valid JSON with exact keys:
+          {{
+            "app_slug": "short_snake_case_name",
+            "app_title": "App Title",
+            "summary": "One sentence description",
+            "backend_main_py": "complete python fastapi code serving frontend/index.html at / and CRUD APIs",
+            "frontend_index_html": "complete html/js code with fetch() calls to the backend",
+            "requirements_txt": "fastapi\\nuvicorn\\npydantic",
+            "readme_md": "markdown readme crediting @sherlockj789-hue"
+          }}
+          """
+
+          raw_response = call_agent(
+              "You are a Principal Full-Stack Engineer. Output ONLY raw valid JSON. No markdown fences.",
+              build_prompt,
+              max_tokens=3600
           )
 
-          if blueprint:
-              print("💻 Agent 2 (Qwen-2.5-Coder-32B) writing production code...")
-              raw_code = ask_agent(
-                  "Qwen/Qwen2.5-Coder-32B-Instruct",
-                  "You are an elite Python developer. Output ONLY raw, runnable Python code with no markdown formatting or explanations.",
-                  f"Write the complete Python code based on this architecture blueprint:\n\n{blueprint}"
-              )
+          cleaned = re.sub(r"^```(?:json)?|```$", "", raw_response.strip(), flags=re.MULTILINE).strip()
+          project = json.loads(cleaned)
 
-              if raw_code:
-                  clean_code = raw_code.replace("```python", "").replace("```", "").strip()
-                  os.makedirs("generated_tools", exist_ok=True)
-                  filename = f"generated_tools/{target_industry.lower()}_pro_gen{state['generation']}.py"
-                  with open(filename, "w") as f:
-                      f.write(clean_code)
-                  print(f"🚀 Success! Heavyweight tool saved to {filename}")
-                  state["best_score"] = min(100.0, round(state["best_score"] + 4.0, 2))
+          slug = re.sub(r"[^a-z0-9_]", "_", project["app_slug"].lower())
+          app_dir = f"apps/gen{gen}_{slug}"
+          os.makedirs(f"{app_dir}/backend", exist_ok=True)
+          os.makedirs(f"{app_dir}/frontend", exist_ok=True)
 
-          state["generation"] += 1
-          with open('network_state.json', 'w') as f:
+          backend_path = f"{app_dir}/backend/main.py"
+          with open(backend_path, "w") as f:
+              f.write(project["backend_main_py"])
+          with open(f"{app_dir}/frontend/index.html", "w") as f:
+              f.write(project["frontend_index_html"])
+          with open(f"{app_dir}/requirements.txt", "w") as f:
+              f.write(project["requirements_txt"])
+          with open(f"{app_dir}/README.md", "w") as f:
+              f.write(project["readme_md"])
+
+          py_compile.compile(backend_path, doraise=True)
+
+          state.setdefault("apps_built", []).append({
+              "gen": gen,
+              "title": project["app_title"],
+              "industry": industry,
+              "path": app_dir,
+              "summary": project.get("summary", "Full-stack autonomous build")
+          })
+          state["generation"] = gen + 1
+
+          readme_lines = [
+              "# 🌐 Autonomous Full-Stack AI Network",
+              "**Created & Architected by [@sherlockj789-hue](https://github.com)**\n",
+              f"- **Current Evolution Level:** {brain['evolution_level']}",
+              f"- **Total Full-Stack Apps Built:** {len(state['apps_built'])}\n",
+              "## 🚀 Autonomous Industry Portfolio",
+              "| Gen | Industry | Full-Stack App | Description |",
+              "| :--- | :--- | :--- | :--- |"
+          ]
+          for item in reversed(state["apps_built"]):
+              readme_lines.append(f"| {item['gen']} | {item['industry']} | [{item['title']}](./{item['path']}) | {item['summary']} |")
+
+          with open("README.md", "w") as f:
+              f.write("\n".join(readme_lines) + "\n")
+          with open("network_state.json", "w") as f:
               json.dump(state, f, indent=4)
+          with open("agent_brain.json", "w") as f:
+              json.dump(brain, f, indent=4)
+          print(f"🚀 Success! Built {project['app_title']} in {app_dir}/")
           EOF
 
-      - name: Push Real Code & Progress to Repo
+      - name: Commit Verified Full-Stack App & Portfolio
         run: |
-          git config --global user.name "Autonomous Orchestrator"
+          git config --global user.name "Autonomous Full-Stack Network"
           git config --global user.email "agents@autonomous.network"
           git add .
-          git commit -m "🚀 Generated heavyweight AI tool [Gen Loop]" || exit 0
+          git commit -m "🚀 Autonomous Squad built verified full-stack app [Creator: @sherlockj789-hue]" || exit 0
           git push
           
